@@ -1,0 +1,138 @@
+{
+  "makes": {
+    "Acura": [
+      "acura"
+    ],
+    "Alfa Romeo": [
+      "alfa",
+      "alfa romeo"
+    ],
+    "Aston Martin": [
+      "aston",
+      "aston martin"
+    ],
+    "Audi": [
+      "audi"
+    ],
+    "Bentley": [
+      "bentley"
+    ],
+    "BMW": [
+      "bmw"
+    ],
+    "Buick": [
+      "buick"
+    ],
+    "Cadillac": [
+      "cadillac"
+    ],
+    "Chevrolet": [
+      "chevrolet",
+      "chevy"
+    ],
+    "Chrysler": [
+      "chrysler"
+    ],
+    "Dodge": [
+      "dodge"
+    ],
+    "Ferrari": [
+      "ferrari"
+    ],
+    "Fiat": [
+      "fiat"
+    ],
+    "Ford": [
+      "ford"
+    ],
+    "GMC": [
+      "gmc"
+    ],
+    "Honda": [
+      "honda"
+    ],
+    "Hyundai": [
+      "hyundai"
+    ],
+    "Infiniti": [
+      "infiniti"
+    ],
+    "Jaguar": [
+      "jaguar"
+    ],
+    "Jeep": [
+      "jeep"
+    ],
+    "Kia": [
+      "kia"
+    ],
+    "Lamborghini": [
+      "lamborghini"
+    ],
+    "Land Rover": [
+      "land rover",
+      "landrover"
+    ],
+    "Lexus": [
+      "lexus"
+    ],
+    "Lincoln": [
+      "lincoln"
+    ],
+    "Maserati": [
+      "maserati"
+    ],
+    "Mazda": [
+      "mazda"
+    ],
+    "McLaren": [
+      "mclaren"
+    ],
+    "Mercedes-Benz": [
+      "mercedes",
+      "mercedes benz",
+      "mercedes-benz"
+    ],
+    "Mini": [
+      "mini"
+    ],
+    "Mitsubishi": [
+      "mitsubishi"
+    ],
+    "Nissan": [
+      "nissan"
+    ],
+    "Porsche": [
+      "porsche"
+    ],
+    "Ram": [
+      "ram"
+    ],
+    "Rolls-Royce": [
+      "rolls royce",
+      "rolls-royce"
+    ],
+    "Saab": [
+      "saab"
+    ],
+    "Scion": [
+      "scion"
+    ],
+    "Subaru": [
+      "subaru"
+    ],
+    "Tesla": [
+      "tesla"
+    ],
+    "Toyota": [
+      "toyota"
+    ],
+    "Volkswagen": [
+      "volkswagen",
+      "vw"
+    ],
+    "Volvo": [
+      "volvo"
+    ]
+  }
+}

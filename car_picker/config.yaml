@@ -1,0 +1,16 @@
+paths:
+  data_dir: data
+  index_dir: index
+  assets_dir: assets
+
+quiz:
+  num_choices: 10
+  strict_scoring: true
+  allow_repeats: false
+
+images:
+  thumbnail_width: 640
+
+ui:
+  title: "Car Picker Quiz"
+  subtitle: "Guess the make, model, and year for each car photo"
