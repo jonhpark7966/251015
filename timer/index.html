@@ -7,11 +7,56 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>현재 시각</h1>
-      <div id="clock" class="clock" aria-live="polite">--:--:--</div>
-      <p class="subtitle">브라우저 시간이 매초 갱신됩니다.</p>
-    </main>
+    <div class="app" data-app-root>
+      <header class="top-bar">
+        <h1 class="title" data-i18n="title">현재 시각 타이머</h1>
+        <div class="top-controls">
+          <button id="languageToggle" class="pill-button" type="button" aria-live="polite" aria-label="언어 전환">
+            English
+          </button>
+        </div>
+      </header>
+      <main class="layout">
+        <section class="map-panel" aria-label="세계 지도">
+          <div class="map-wrapper" id="mapWrapper">
+            <svg class="world-map" viewBox="0 0 1000 500" role="img" aria-hidden="true">
+              <title>세계 지도</title>
+              <g class="continent">
+                <path
+                  class="land land-america"
+                  d="M70 180 L150 110 L270 80 L360 110 L330 200 L240 240 L190 220 L150 250 L110 230 Z"
+                />
+                <path
+                  class="land land-south-america"
+                  d="M220 240 L260 250 L320 290 L300 360 L260 410 L220 360 L230 310 Z"
+                />
+                <path
+                  class="land land-eurasia"
+                  d="M360 130 L460 90 L600 110 L650 90 L740 120 L840 170 L880 210 L860 260 L790 280 L730 260 L650 240 L600 210 L540 210 L500 240 L430 220 L380 190 Z"
+                />
+                <path class="land land-africa" d="M500 240 L560 260 L600 320 L560 380 L500 360 L460 300 Z" />
+                <path class="land land-australia" d="M750 360 L820 340 L900 380 L870 430 L800 440 L760 410 Z" />
+              </g>
+            </svg>
+            <div class="day-night-overlay"></div>
+            <div class="city-markers" id="cityMarkers" role="list"></div>
+          </div>
+          <p class="map-hint" data-i18n="mapHint">지도 위 도시를 클릭해 시간대를 바꿔보세요.</p>
+        </section>
+        <section class="clock-panel" aria-live="polite">
+          <div class="time-display">
+            <span id="period" class="period">AM</span>
+            <span id="time" class="time">12:00:00</span>
+          </div>
+          <div class="milliseconds" id="milliseconds">000 ms</div>
+          <div class="timezone-meta">
+            <span id="timezoneLabel" class="tz-name">서울</span>
+            <span id="utcOffset" class="tz-offset">UTC+09:00</span>
+          </div>
+          <div class="city-glance" id="cityGlance" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
     <script src="script.js"></script>
   </body>
 </html>
