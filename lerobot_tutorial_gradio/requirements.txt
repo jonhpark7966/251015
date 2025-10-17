@@ -1,3 +1,4 @@
 gradio>=4.0.0
 fastapi
 uvicorn[standard]
+openai>=1.0.0

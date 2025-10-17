@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import gradio as gr
 from fastapi import FastAPI
@@ -12,6 +12,11 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - best effort fallback
+    OpenAI = None  # type: ignore[assignment]
 
 BASE_DIR = Path(__file__).resolve().parent
 DIST = BASE_DIR / "src_space/app/dist"
@@ -23,6 +28,11 @@ TAB_OPTIONS: Dict[str, str] = {
 }
 DEFAULT_TAB_KEY = "astro"
 DEFAULT_TAB_LABEL = next(label for label, key in TAB_OPTIONS.items() if key == DEFAULT_TAB_KEY)
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+SYSTEM_PROMPT = (
+    "You are an assistant for the LeRobot tutorial workspace. "
+    "Answer concisely in the language the user uses."
+)
 DUAL_PANE_CSS = """
 #dual-pane {
   gap: 1rem;
@@ -91,6 +101,10 @@ DUAL_PANE_CSS = """
   }
 }
 """
+
+
+class ChatError(RuntimeError):
+    """Domain-specific error for chat related failures."""
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
@@ -223,12 +237,163 @@ def make_iframe_html(locale: str, pane_id: str) -> str:
 """
 
 
+def ensure_openai_client(api_key: str):
+    key = (api_key or "").strip()
+    if not key:
+        raise ChatError("OpenAI API 키를 먼저 입력해주세요.")
+    if OpenAI is None:
+        raise ChatError(
+            "`openai` 패키지를 찾을 수 없습니다. `pip install -r requirements.txt`를 다시 실행하세요."
+        )
+    return OpenAI(api_key=key)
+
+
+def redact_api_key(text: str, api_key: str) -> str:
+    if not text:
+        return text
+    key = (api_key or "").strip()
+    if not key:
+        return text
+    redacted = text.replace(key, "[redacted]")
+    if key.startswith("sk-") and len(key) >= 8:
+        redacted = redacted.replace(key[:8], "sk-****")
+    return redacted
+
+
+def build_openai_messages(
+    history: List[Tuple[str, str]], user_message: str
+) -> List[Dict[str, str]]:
+    messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for user, assistant in history:
+        if user:
+            messages.append({"role": "user", "content": user})
+        if assistant:
+            messages.append({"role": "assistant", "content": assistant})
+    messages.append({"role": "user", "content": user_message})
+    return messages
+
+
+def request_chat_completion(
+    api_key: str, history: List[Tuple[str, str]], user_message: str
+) -> str:
+    client = ensure_openai_client(api_key)
+    messages = build_openai_messages(history, user_message)
+    try:
+        response = client.chat.completions.create(
+            model=DEFAULT_OPENAI_MODEL,
+            messages=messages,
+        )
+    except Exception as exc:  # pragma: no cover - surface clean error to UI
+        safe_message = redact_api_key(str(exc), api_key)
+        raise ChatError(f"OpenAI 호출에 실패했습니다: {safe_message}") from exc
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        raise ChatError("OpenAI에서 빈 응답을 반환했습니다.")
+    first_choice = choices[0]
+    content = getattr(first_choice.message, "content", None)
+    if isinstance(content, list):
+        content = "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict)
+        )
+    if not content:
+        raise ChatError("OpenAI 응답에 메시지가 없습니다.")
+    return str(content).strip()
+
+
+def handle_api_key_submit(
+    raw_key: str, current_cfg: Dict[str, Any] | None
+) -> Tuple[str, Dict[str, Any], str, Dict[str, Any]]:
+    cleaned = (raw_key or "").strip()
+    cfg = dict(current_cfg or {})
+    if not cleaned:
+        cfg["chat_ready"] = False
+        return (
+            "⚠️ OpenAI API 키를 입력한 뒤 저장을 눌러주세요.",
+            gr.update(),
+            "",
+            cfg,
+        )
+    cfg["chat_ready"] = True
+    return (
+        "✅ OpenAI API 키가 세션에 저장되었습니다. 새로고침하면 다시 입력해야 합니다.",
+        gr.update(value=""),
+        cleaned,
+        cfg,
+    )
+
+
+def handle_api_key_clear(
+    current_cfg: Dict[str, Any] | None,
+) -> Tuple[str, Dict[str, Any], str, Dict[str, Any]]:
+    cfg = dict(current_cfg or {})
+    cfg["chat_ready"] = False
+    return (
+        "ℹ️ 저장된 API 키를 삭제했습니다. 다른 키로 다시 저장할 수 있습니다.",
+        gr.update(value=""),
+        "",
+        cfg,
+    )
+
+
+def handle_chat_submit(
+    user_message: str,
+    history: List[Tuple[str, str]],
+    api_key: str,
+) -> Tuple[List[Tuple[str, str]], Dict[str, Any], List[Tuple[str, str]], str]:
+    message = (user_message or "").strip()
+    if not message:
+        return history, gr.update(), history, "⚠️ 전송할 메시지를 입력해주세요."
+
+    new_history = list(history)
+    new_history.append((message, ""))
+    if not api_key:
+        new_history[-1] = (
+            message,
+            "먼저 우측의 OpenAI API 키 입력란에 키를 저장해주세요.",
+        )
+        return (
+            new_history,
+            gr.update(value=""),
+            new_history,
+            "⚠️ OpenAI API 키가 필요합니다.",
+        )
+
+    try:
+        assistant_reply = request_chat_completion(api_key, history, message)
+    except ChatError as err:
+        new_history[-1] = (message, f"❌ {err}")
+        return (
+            new_history,
+            gr.update(value=""),
+            new_history,
+            f"❌ {err}",
+        )
+
+    new_history[-1] = (message, assistant_reply)
+    return (
+        new_history,
+        gr.update(value=""),
+        new_history,
+        "✅ 응답을 받았습니다.",
+    )
+
+
+def handle_chat_clear(
+    history: List[Tuple[str, str]]
+) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]], str]:
+    if not history:
+        return history, history, "ℹ️ 초기화할 대화가 없습니다."
+    return [], [], "ℹ️ 대화를 초기화했습니다."
+
+
 def compute_updates(
     tab_key: str,
     show_right: bool,
     _left_cfg: Dict[str, Any],
     right_cfg: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     metadata = get_build_metadata()
     debug_markdown = build_debug_markdown(metadata)
 
@@ -239,41 +404,8 @@ def compute_updates(
     left_debug_update = gr.update(**left_debug_kwargs)
 
     right_group_update = gr.update(visible=show_right)
-    right_updates_locale = right_cfg.get("locale", "en")
-    prev_dist_exists = right_cfg.get("last_dist_exists")
     new_right_cfg = dict(right_cfg)
-    new_right_cfg["last_dist_exists"] = metadata["exists"]
-    if prev_dist_exists is not None and prev_dist_exists != metadata["exists"]:
-        new_right_cfg["astro_loaded"] = False
-
-    right_astro_kwargs: Dict[str, Any] = {"visible": tab_key == "astro" and show_right}
-    needs_astro_value = (
-        tab_key == "astro"
-        and show_right
-        and (
-            not new_right_cfg.get("astro_loaded")
-            or prev_dist_exists != metadata["exists"]
-        )
-    )
-    if needs_astro_value:
-        right_astro_kwargs["value"] = make_iframe_html(right_updates_locale, "right")
-        new_right_cfg["astro_loaded"] = True
-        new_right_cfg["last_dist_exists"] = metadata["exists"]
-    right_astro_update = gr.update(**right_astro_kwargs)
-
-    right_debug_kwargs: Dict[str, Any] = {"visible": tab_key == "debug" and show_right}
-    if tab_key == "debug" and show_right:
-        right_debug_kwargs["value"] = debug_markdown
-    right_debug_update = gr.update(**right_debug_kwargs)
-
-    return (
-        left_astro_update,
-        left_debug_update,
-        right_group_update,
-        right_astro_update,
-        right_debug_update,
-        new_right_cfg,
-    )
+    return left_astro_update, left_debug_update, right_group_update, new_right_cfg
 
 
 def handle_tab_change(
@@ -282,14 +414,12 @@ def handle_tab_change(
     left_cfg: Dict[str, Any],
     right_cfg: Dict[str, Any],
     show_right: bool,
-) -> Tuple[str, Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[str, Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     tab_key = label_to_tab(selected_label)
     (
         left_astro_update,
         left_debug_update,
         right_group_update,
-        right_astro_update,
-        right_debug_update,
         new_right_cfg,
     ) = compute_updates(tab_key, show_right, left_cfg, right_cfg)
     return (
@@ -297,8 +427,6 @@ def handle_tab_change(
         left_astro_update,
         left_debug_update,
         right_group_update,
-        right_astro_update,
-        right_debug_update,
         new_right_cfg,
     )
 
@@ -308,16 +436,14 @@ def handle_right_toggle(
     tab_key: str,
     _left_cfg: Dict[str, Any],
     right_cfg: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     (
         _,
         _,
         right_group_update,
-        right_astro_update,
-        right_debug_update,
         new_right_cfg,
     ) = compute_updates(tab_key, show_right, _left_cfg, right_cfg)
-    return right_group_update, right_astro_update, right_debug_update, new_right_cfg
+    return right_group_update, new_right_cfg
 
 
 initial_metadata = get_build_metadata()
@@ -325,9 +451,9 @@ initial_metadata = get_build_metadata()
 with gr.Blocks(title="MDX→Astro 뷰어", css=DUAL_PANE_CSS) as ui:
     selected_tab_state = gr.State(DEFAULT_TAB_KEY)  # No persistence across refresh by design
     left_config_state = gr.State({"locale": "en"})
-    right_config_state = gr.State(
-        {"locale": "en", "astro_loaded": False, "last_dist_exists": DIST.exists()}
-    )
+    right_config_state = gr.State({"chat_ready": False})
+    api_key_state = gr.State("")
+    chat_history_state = gr.State([])  # list[tuple[user, assistant]]
 
     with gr.Column(elem_id="dual-pane"):
         gr.Markdown(
@@ -340,7 +466,7 @@ with gr.Blocks(title="MDX→Astro 뷰어", css=DUAL_PANE_CSS) as ui:
                 label="View",
                 show_label=False,
             )
-            right_toggle = gr.Checkbox(label="Show right pane", value=False)
+            right_toggle = gr.Checkbox(label="Show right pane", value=True)
             gr.Dropdown(
                 choices=["en", "ko"],
                 value="en",
@@ -359,17 +485,40 @@ with gr.Blocks(title="MDX→Astro 뷰어", css=DUAL_PANE_CSS) as ui:
                     visible=False,
                     elem_id="left-pane-debug",
                 )
-            with gr.Group(elem_id="right-pane-group", visible=False) as right_group:
+            with gr.Group(elem_id="right-pane-group", visible=True) as right_group:
                 with gr.Column(elem_id="right-pane"):
-                    right_astro = gr.HTML(
-                        value="",
-                        visible=False,
-                        elem_id="right-pane-astro",
+                    gr.Markdown(
+                        "### OpenAI 기반 대화\nAPI 키는 브라우저 세션에만 저장되며 서버에는 기록되지 않습니다.",
+                        elem_id="right-pane-heading",
                     )
-                    right_debug = gr.Markdown(
+                    with gr.Row():
+                        api_key_input = gr.Textbox(
+                            label="OpenAI API Key",
+                            placeholder="sk-...",
+                            type="password",
+                            scale=4,
+                        )
+                        save_api_key_button = gr.Button("저장", variant="primary", scale=1)
+                        clear_api_key_button = gr.Button("삭제", scale=1)
+                    api_key_status = gr.Markdown("", elem_id="right-pane-api-key-status")
+                    chatbot = gr.Chatbot(
+                        label="Chat",
+                        value=[],
+                        elem_id="right-pane-chatbot",
+                        height=420,
+                    )
+                    with gr.Row():
+                        chat_message = gr.Textbox(
+                            label="메시지",
+                            placeholder="질문을 입력하고 Enter 또는 전송 버튼을 누르세요.",
+                            lines=2,
+                            scale=4,
+                        )
+                        send_button = gr.Button("전송", variant="primary", scale=1)
+                    clear_chat_button = gr.Button("대화 초기화")
+                    chat_status = gr.Markdown(
                         "",
-                        visible=False,
-                        elem_id="right-pane-debug",
+                        elem_id="right-pane-chat-status",
                     )
 
     tab_radio.change(
@@ -386,8 +535,6 @@ with gr.Blocks(title="MDX→Astro 뷰어", css=DUAL_PANE_CSS) as ui:
             left_astro,
             left_debug,
             right_group,
-            right_astro,
-            right_debug,
             right_config_state,
         ],
     )
@@ -395,7 +542,34 @@ with gr.Blocks(title="MDX→Astro 뷰어", css=DUAL_PANE_CSS) as ui:
     right_toggle.change(
         handle_right_toggle,
         inputs=[right_toggle, selected_tab_state, left_config_state, right_config_state],
-        outputs=[right_group, right_astro, right_debug, right_config_state],
+        outputs=[right_group, right_config_state],
+    )
+
+    save_api_key_button.click(
+        handle_api_key_submit,
+        inputs=[api_key_input, right_config_state],
+        outputs=[api_key_status, api_key_input, api_key_state, right_config_state],
+    )
+    clear_api_key_button.click(
+        handle_api_key_clear,
+        inputs=[right_config_state],
+        outputs=[api_key_status, api_key_input, api_key_state, right_config_state],
+    )
+
+    send_button.click(
+        handle_chat_submit,
+        inputs=[chat_message, chat_history_state, api_key_state],
+        outputs=[chatbot, chat_message, chat_history_state, chat_status],
+    )
+    chat_message.submit(
+        handle_chat_submit,
+        inputs=[chat_message, chat_history_state, api_key_state],
+        outputs=[chatbot, chat_message, chat_history_state, chat_status],
+    )
+    clear_chat_button.click(
+        handle_chat_clear,
+        inputs=[chat_history_state],
+        outputs=[chatbot, chat_history_state, chat_status],
     )
 
 # Gradio는 /app 하위 경로에 마운트 (정적은 아래에서 루트에 마운트)
@@ -403,4 +577,3 @@ app = gr.mount_gradio_app(fastapi_app, ui, path="/app")
 
 # Gradio 마운트 후에 Astro 정적 자산을 루트('/')로 마운트 (경로 우선순위 보장)
 app.mount("/", StaticFiles(directory=str(DIST), html=True, check_dir=False), name="site")
-

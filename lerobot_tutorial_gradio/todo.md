@@ -38,3 +38,13 @@
 ## Phase 5 · Future Enhancements (Blocked until i18n lands)
 - [ ] Enable the hidden locale dropdown and map pane config to `/` vs `/ko` iframe sources.
 - [ ] Replace the debug tab with an MDX source preview or translation QA view once multilingual artifacts are generated.
+
+## Phase 6 · Right-Pane Chat Interface
+- [x] Choose OpenAI SDK (`openai` Python client ≥1.0) and pin dependency in `requirements.txt`; confirm no credentials stored server-side.
+- [x] Model the chat session state: `chat_history` (list of dicts), `api_key` (str), and right-pane config flags (e.g., `chat_ready`).
+- [x] Add secure API key input UI (masked textbox + helper copy) and store value in `gr.State` scoped to the user session.
+- [x] Build the right-pane layout: persist the tab toggle controls, replace debug placeholder with chat container (`gr.Chatbot`, prompt box, submit button, clear button).
+- [x] Implement server-side handler that validates API key, calls OpenAI completions/chat API, and gracefully surfaces errors (invalid key, rate limit, network issues).
+- [x] Prevent accidental key logging: strip key from logs, avoid including it in metadata/debug views, and scrub from exceptions.
+- [x] Once chat skeleton works, integrate with the tab change logic so the right pane always displays chat regardless of left tab content.
+- [ ] Add optimistic UI feedback: disable send button while awaiting reply, show spinner/message when waiting for OpenAI response.
