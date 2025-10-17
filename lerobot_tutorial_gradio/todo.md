@@ -2,23 +2,23 @@
 
 ## Phase 0 · Preflight Safeguards
 - [ ] Record baseline: archive current `app.py` (e.g., `cp app.py app.py.pre-dual-pane`) and create a git tag/branch `pre-dual-pane`.
-- [ ] Verify/lock Gradio version (`gradio>=4.0.0`) so `.update()` on `gr.HTML` is supported without remounting components.
+- [x] Verify/lock Gradio version (`gradio>=4.0.0`) so `.update()` on `gr.HTML` is supported without remounting components.
 - [ ] Capture current single-pane smoke-test steps so we can confirm parity after refactor.
 
-## Phase 1 · Layout & State Foundations
-- [ ] Introduce shared Gradio state: `selected_tab` (`str`), `left_pane_config` (`dict`), `right_pane_config` (`dict`), and a `_rendering` flag to debounce circular updates.
-- [ ] Replace the single-column Blocks body in `app.py` with a `gr.Row` that hosts two always-mounted `gr.Column` containers (`left_pane`, `right_pane`).
-- [ ] Add a top toolbar with a `gr.Radio` (tab selector), a `gr.Checkbox` (“Show right pane”), and a placeholder `gr.Dropdown` for future locale switching (`visible=False` for now).
-- [ ] Wrap the right pane inside a `gr.Group(visible=True)` and wire the checkbox `.change()` handler to toggle only the group visibility so component state persists.
-- [ ] Document the state flow and success criteria (tab change propagates to both panes within ~100 ms, right-pane toggle leaves left-pane scroll intact) and note the MVP decision: no persistence across refresh (localStorage deferred to avoid cross-origin complexity).
-- [ ] Decide—by the end of Phase 1—whether tab/pane state should persist across refresh (localStorage/query params/none) and document the decision even if implementation is deferred.
+- [x] Introduce shared Gradio state: `selected_tab` (`str`), `left_pane_config` (`dict`), `right_pane_config` (`dict`). 
+  - [ ] Add a `_rendering` flag to debounce circular updates.
+- [x] Replace the single-column Blocks body in `app.py` with a `gr.Row` that hosts two always-mounted `gr.Column` containers (`left_pane`, `right_pane`).
+- [x] Add a top toolbar with a `gr.Radio` (tab selector), a `gr.Checkbox` (“Show right pane”), and a placeholder `gr.Dropdown` for future locale switching (`visible=False` for now).
+- [x] Wrap the right pane inside a `gr.Group(visible=True)` and wire the checkbox `.change()` handler to toggle only the group visibility so component state persists.
+- [x] Document the state flow and success criteria (tab change propagates to both panes within ~100 ms, right-pane toggle leaves left-pane scroll intact) and note the MVP decision: no persistence across refresh (localStorage deferred to avoid cross-origin complexity).
+- [x] Decide—by the end of Phase 1—whether tab/pane state should persist across refresh (localStorage/query params/none) and document the decision even if implementation is deferred.
 
 ## Phase 2 · Tab Rendering & Content Hooks
-- [ ] Implement dedicated renderer functions (`render_left_pane`, `render_right_pane`) that accept `(selected_tab, pane_config)` and return `.update()` payloads for existing components.
-- [ ] Tab A: Reuse the existing Astro iframe; update it via `gr.HTML(..., elem_id="astro_iframe")` and `.update(value=iframe_html)` so the iframe DOM instance survives state changes, only altering wrapper markup (not the iframe `src`) unless the user explicitly changes locale.
-- [ ] Tab B: Add a “Debug Info” view that calls a new helper `get_build_metadata()` (dist path, build timestamp, file count, Astro version) and renders the details via `gr.Markdown`.
+- [x] Implement dedicated renderer functions (`render_left_pane`, `render_right_pane`) that accept `(selected_tab, pane_config)` and return `.update()` payloads for existing components.
+- [x] Tab A: Reuse the existing Astro iframe; update it via `gr.HTML(..., elem_id="astro_iframe")` and `.update(value=iframe_html)` so the iframe DOM instance survives state changes, only altering wrapper markup (not the iframe `src`) unless the user explicitly changes locale.
+- [x] Tab B: Add a “Debug Info” view that calls a new helper `get_build_metadata()` (dist path, build timestamp, file count, Astro version) and renders the details via `gr.Markdown`.
 - [ ] Guard against infinite update loops by checking the `_rendering` flag inside event handlers before mutating shared state.
-- [ ] Document limitations (e.g., iframe scroll reset when `src` changes) inline for future mitigation.
+- [x] Document limitations (e.g., iframe scroll reset when `src` changes) inline for future mitigation.
 
 ## Phase 3 · UX Polish & Responsiveness
 - [ ] Apply scoped CSS by assigning `elem_id` attributes (e.g., `#dual-pane`, `#left-pane`, `#right-pane`) and passing a stylesheet via `gr.Blocks(css=...)` that pins the tab strip, balances column widths, and collapses the right pane entirely below 768 px.
