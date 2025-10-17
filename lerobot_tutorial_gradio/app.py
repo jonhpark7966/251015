@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Tuple
 
+import re
 import gradio as gr
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,9 +20,17 @@ try:
 except ImportError:  # pragma: no cover - best effort fallback
     OpenAI = None  # type: ignore[assignment]
 
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:  # pragma: no cover - optional dependency
+    TfidfVectorizer = None  # type: ignore[assignment]
+    cosine_similarity = None  # type: ignore[assignment]
+
 BASE_DIR = Path(__file__).resolve().parent
 DIST = BASE_DIR / "src_space/app/dist"
 PACKAGE_JSON = BASE_DIR / "src_space/app/package.json"
+CONTENT_DIR = BASE_DIR / "src_space/app/src/content"
 
 TAB_OPTIONS: Dict[str, str] = {
     "Astro Preview": "astro",
@@ -101,6 +111,170 @@ DUAL_PANE_CSS = """
   }
 }
 """
+
+SECTION_EXTENSIONS = (".md", ".mdx")
+
+
+@dataclass
+class TutorialSection:
+    identifier: str
+    title: str
+    content: str
+    path: Path
+
+
+class SectionMatch(NamedTuple):
+    section: TutorialSection
+    score: float
+
+
+class SectionSearcher(Protocol):
+    def search(self, query: str, top_k: int = 1) -> List[SectionMatch]:
+        ...
+
+
+class TfIdfSectionSearcher:
+    """TF-IDF backed section searcher. Swappable via the SectionSearcher protocol."""
+
+    def __init__(self, sections: List[TutorialSection]):
+        if TfidfVectorizer is None or cosine_similarity is None:
+            raise ImportError("scikit-learn is required for TF-IDF search.")
+        if not sections:
+            raise ValueError("At least one section is required to build the search index.")
+        self._sections = sections
+        self._vectorizer = TfidfVectorizer(
+            stop_words="english",
+            max_features=5000,
+        )
+        corpus = [section.content for section in sections]
+        self._matrix = self._vectorizer.fit_transform(corpus)
+
+    def search(self, query: str, top_k: int = 1) -> List[SectionMatch]:
+        cleaned = (query or "").strip()
+        if not cleaned:
+            return []
+        query_vec = self._vectorizer.transform([cleaned])
+        similarities = cosine_similarity(query_vec, self._matrix)[0].tolist()
+        ranked_indices = sorted(
+            range(len(similarities)), key=lambda idx: similarities[idx], reverse=True
+        )
+        matches: List[SectionMatch] = []
+        for idx in ranked_indices[:top_k]:
+            score = float(similarities[idx])
+            if score <= 0:
+                continue
+            matches.append(SectionMatch(section=self._sections[idx], score=score))
+        return matches
+
+
+SECTION_CACHE: List[TutorialSection] = []
+SECTION_SEARCHER: Optional[SectionSearcher] = None
+SECTION_SEARCHER_ERROR: Optional[str] = None
+
+
+def parse_frontmatter(raw: str) -> Tuple[Dict[str, str], str]:
+    if not raw.lstrip().startswith("---"):
+        return {}, raw
+    lines = raw.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, raw
+    metadata: Dict[str, str] = {}
+    fm_lines: List[str] = []
+    closing_idx: Optional[int] = None
+    for idx, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            closing_idx = idx
+            break
+        fm_lines.append(line)
+    if closing_idx is None:
+        return {}, raw
+    for line in fm_lines:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        metadata[key.strip().lower()] = value.strip().strip("'\"")
+    body = "\n".join(lines[closing_idx + 1 :])
+    return metadata, body
+
+
+IMPORT_EXPORT_RE = re.compile(r"^\s*(import|export).*$", re.MULTILINE)
+TAG_RE = re.compile(r"<[^>]+>")
+CODE_BLOCK_RE = re.compile(r"```.+?```", re.DOTALL)
+INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
+LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
+
+def clean_mdx_content(text: str) -> str:
+    stripped = IMPORT_EXPORT_RE.sub(" ", text)
+    stripped = CODE_BLOCK_RE.sub(" ", stripped)
+    stripped = IMAGE_RE.sub(" ", stripped)
+    stripped = TAG_RE.sub(" ", stripped)
+    stripped = LINK_RE.sub(r"\1", stripped)
+    stripped = INLINE_CODE_RE.sub(r"\1", stripped)
+    stripped = stripped.replace("#", " ")
+    collapsed = " ".join(stripped.split())
+    return collapsed[:5000]
+
+
+def derive_title(path: Path, metadata: Dict[str, str]) -> str:
+    title = metadata.get("title")
+    if title:
+        return title
+    stem = path.stem.replace("_", " ").strip().title()
+    return stem or path.name
+
+
+def read_section(path: Path) -> Optional[TutorialSection]:
+    try:
+        raw = path.read_text("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    metadata, body = parse_frontmatter(raw)
+    content = clean_mdx_content(body)
+    if not content:
+        return None
+    identifier = path.relative_to(CONTENT_DIR).as_posix()
+    title = derive_title(path, metadata)
+    return TutorialSection(
+        identifier=identifier,
+        title=title,
+        content=content,
+        path=path,
+    )
+
+
+def load_sections() -> List[TutorialSection]:
+    sections: List[TutorialSection] = []
+    if not CONTENT_DIR.exists():
+        return sections
+    for path in sorted(CONTENT_DIR.rglob("*")):
+        if path.suffix.lower() not in SECTION_EXTENSIONS:
+            continue
+        if path.name.endswith(".backup"):
+            continue
+        section = read_section(path)
+        if section:
+            sections.append(section)
+    return sections
+
+
+def ensure_section_searcher() -> Optional[SectionSearcher]:
+    global SECTION_CACHE, SECTION_SEARCHER, SECTION_SEARCHER_ERROR
+    if SECTION_SEARCHER is not None:
+        return SECTION_SEARCHER
+    SECTION_CACHE = load_sections()
+    if not SECTION_CACHE:
+        SECTION_SEARCHER = None
+        SECTION_SEARCHER_ERROR = "섹션 데이터가 비어 있습니다."
+        return SECTION_SEARCHER
+    try:
+        SECTION_SEARCHER = TfIdfSectionSearcher(SECTION_CACHE)
+        SECTION_SEARCHER_ERROR = None
+    except Exception as exc:
+        SECTION_SEARCHER = None
+        SECTION_SEARCHER_ERROR = str(exc)
+    return SECTION_SEARCHER
 
 
 class ChatError(RuntimeError):
@@ -248,6 +422,28 @@ def ensure_openai_client(api_key: str):
     return OpenAI(api_key=key)
 
 
+def find_best_section(query: str) -> Optional[SectionMatch]:
+    searcher = ensure_section_searcher()
+    if not searcher:
+        return None
+    matches = searcher.search(query, top_k=1)
+    return matches[0] if matches else None
+
+
+def format_section_preface(section: TutorialSection) -> str:
+    return f"[Section] {section.title} ({section.identifier})"
+
+
+def section_unavailable_reason() -> str:
+    if not SECTION_CACHE:
+        return "튜토리얼 섹션 데이터를 불러오지 못했습니다. LaTeX→MDX→Astro 파이프라인이 완료됐는지 확인하세요."
+    if SECTION_SEARCHER_ERROR:
+        return f"섹션 검색을 초기화하지 못했습니다: {SECTION_SEARCHER_ERROR}"
+    if TfidfVectorizer is None or cosine_similarity is None:
+        return "TF-IDF 검색을 사용할 수 없습니다. `pip install -r requirements.txt`로 scikit-learn을 설치한 뒤 다시 실행하세요."
+    return "질문과 연관된 섹션을 찾지 못했습니다. 키워드를 더 구체적으로 작성해보세요."
+
+
 def redact_api_key(text: str, api_key: str) -> str:
     if not text:
         return text
@@ -261,9 +457,20 @@ def redact_api_key(text: str, api_key: str) -> str:
 
 
 def build_openai_messages(
-    history: List[Tuple[str, str]], user_message: str
+    history: List[Tuple[str, str]],
+    user_message: str,
+    section: Optional[TutorialSection],
 ) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if section:
+        context = (
+            "Use the following tutorial section as the primary reference. "
+            "Ground your answer in this section and mention the section title and identifier in your reply.\n"
+            f"Section title: {section.title}\n"
+            f"Section identifier: {section.identifier}\n"
+            f"Section content:\n{section.content}"
+        )
+        messages.append({"role": "system", "content": context})
     for user, assistant in history:
         if user:
             messages.append({"role": "user", "content": user})
@@ -274,10 +481,13 @@ def build_openai_messages(
 
 
 def request_chat_completion(
-    api_key: str, history: List[Tuple[str, str]], user_message: str
+    api_key: str,
+    history: List[Tuple[str, str]],
+    user_message: str,
+    section: Optional[TutorialSection],
 ) -> str:
     client = ensure_openai_client(api_key)
-    messages = build_openai_messages(history, user_message)
+    messages = build_openai_messages(history, user_message, section)
     try:
         response = client.chat.completions.create(
             model=DEFAULT_OPENAI_MODEL,
@@ -360,8 +570,20 @@ def handle_chat_submit(
             "⚠️ OpenAI API 키가 필요합니다.",
         )
 
+    section_match = find_best_section(message)
+    if section_match is None:
+        reason = section_unavailable_reason()
+        new_history[-1] = (message, f"ℹ️ {reason}")
+        return (
+            new_history,
+            gr.update(value=""),
+            new_history,
+            f"ℹ️ {reason}",
+        )
+
+    section = section_match.section
     try:
-        assistant_reply = request_chat_completion(api_key, history, message)
+        assistant_reply = request_chat_completion(api_key, history, message, section)
     except ChatError as err:
         new_history[-1] = (message, f"❌ {err}")
         return (
@@ -371,12 +593,14 @@ def handle_chat_submit(
             f"❌ {err}",
         )
 
-    new_history[-1] = (message, assistant_reply)
+    preface = format_section_preface(section)
+    combined_reply = f"{preface}\n\n{assistant_reply}"
+    new_history[-1] = (message, combined_reply)
     return (
         new_history,
         gr.update(value=""),
         new_history,
-        "✅ 응답을 받았습니다.",
+        f"✅ '{section.title}' 섹션 기반으로 응답했습니다.",
     )
 
 
@@ -447,6 +671,7 @@ def handle_right_toggle(
 
 
 initial_metadata = get_build_metadata()
+ensure_section_searcher()
 
 with gr.Blocks(title="MDX→Astro 뷰어", css=DUAL_PANE_CSS) as ui:
     selected_tab_state = gr.State(DEFAULT_TAB_KEY)  # No persistence across refresh by design

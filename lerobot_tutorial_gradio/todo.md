@@ -48,3 +48,11 @@
 - [x] Prevent accidental key logging: strip key from logs, avoid including it in metadata/debug views, and scrub from exceptions.
 - [x] Once chat skeleton works, integrate with the tab change logic so the right pane always displays chat regardless of left tab content.
 - [ ] Add optimistic UI feedback: disable send button while awaiting reply, show spinner/message when waiting for OpenAI response.
+
+## Phase 7 · Retrieval-Augmented Chat
+- [x] Abstract section search behind a swappable interface so different retrieval strategies can plug in.
+- [x] Implement TF-IDF based searcher over MDX content (`src_space/app/src/content/**`) and cache section metadata.
+- [x] Normalize MDX into clean text snippets (title, slug, summary) for ranking and prompt injection.
+- [x] Inject top section context into OpenAI requests and prepend assistant replies with the chosen section reference.
+- [x] Gracefully handle “no section found” cases by returning a friendly fallback and skipping API usage.
+- [ ] Add tests or smoke scripts to validate that queries route to expected sections (e.g., Introduction vs Reinforcement Learning).
