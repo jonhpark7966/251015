@@ -1,0 +1,4 @@
+[submodule "lerobot_tutorial_gradio/robot-learning-tutorial"]
+	path = lerobot_tutorial_gradio/robot-learning-tutorial
+	url = https://github.com/fracapuano/robot-learning-tutorial
+	branch = main
