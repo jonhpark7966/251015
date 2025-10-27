@@ -21,21 +21,55 @@
           <div class="map-wrapper" id="mapWrapper">
             <svg class="world-map" viewBox="0 0 1000 500" role="img" aria-hidden="true">
               <title>세계 지도</title>
-              <g class="continent">
+              <defs>
+                <linearGradient id="oceanGradient" x1="0%" x2="100%" y1="0%" y2="100%">
+                  <stop offset="0%" stop-color="#06142b" />
+                  <stop offset="50%" stop-color="#0b274e" />
+                  <stop offset="100%" stop-color="#071126" />
+                </linearGradient>
+                <radialGradient id="landGradient" cx="50%" cy="40%" r="70%">
+                  <stop offset="0%" stop-color="#6edbff" />
+                  <stop offset="45%" stop-color="#4f9fea" />
+                  <stop offset="100%" stop-color="#3661c2" />
+                </radialGradient>
+                <radialGradient id="landGlow" cx="50%" cy="50%" r="65%">
+                  <stop offset="0%" stop-color="rgba(255, 255, 255, 0.55)" />
+                  <stop offset="35%" stop-color="rgba(111, 191, 255, 0.35)" />
+                  <stop offset="100%" stop-color="rgba(34, 54, 119, 0)" />
+                </radialGradient>
+                <pattern id="oceanGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M40 0 H0 V40" fill="none" stroke="rgba(90, 146, 219, 0.12)" stroke-width="1" />
+                </pattern>
+                <filter id="landShadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feDropShadow dx="0" dy="15" stdDeviation="12" flood-color="rgba(0, 0, 0, 0.45)" />
+                </filter>
+              </defs>
+              <g class="map-ocean">
+                <rect width="1000" height="500" fill="url(#oceanGradient)" />
+                <rect width="1000" height="500" fill="url(#oceanGrid)" opacity="0.35" />
+                <ellipse cx="500" cy="260" rx="520" ry="210" fill="url(#landGlow)" opacity="0.65" />
+              </g>
+              <g class="map-land" filter="url(#landShadow)">
                 <path
-                  class="land land-america"
-                  d="M70 180 L150 110 L270 80 L360 110 L330 200 L240 240 L190 220 L150 250 L110 230 Z"
+                  class="land"
+                  d="M45 182 C90 132 158 108 226 81 C272 61 328 58 377 72 C409 82 429 108 455 135 C471 152 489 162 501 179 C518 205 521 227 504 251 C471 297 414 318 365 334 C314 350 264 360 214 350 C178 343 142 323 118 300 C96 279 75 255 60 228 C49 208 37 196 45 182 Z"
                 />
                 <path
-                  class="land land-south-america"
-                  d="M220 240 L260 250 L320 290 L300 360 L260 410 L220 360 L230 310 Z"
+                  class="land"
+                  d="M316 292 C350 282 387 287 418 302 C442 313 456 331 467 352 C480 376 494 403 488 430 C480 463 446 482 414 480 C384 479 358 462 340 439 C323 417 320 386 314 358 C309 335 299 305 316 292 Z"
                 />
                 <path
-                  class="land land-eurasia"
-                  d="M360 130 L460 90 L600 110 L650 90 L740 120 L840 170 L880 210 L860 260 L790 280 L730 260 L650 240 L600 210 L540 210 L500 240 L430 220 L380 190 Z"
+                  class="land"
+                  d="M456 158 C491 122 546 102 598 93 C650 84 705 86 752 100 C804 116 845 145 885 176 C919 203 947 237 948 274 C949 312 924 344 893 362 C862 381 822 384 785 375 C751 367 719 348 688 326 C655 303 619 279 580 270 C553 264 529 273 505 286 C482 298 455 312 432 304 C411 297 404 271 403 246 C402 219 419 182 456 158 Z"
                 />
-                <path class="land land-africa" d="M500 240 L560 260 L600 320 L560 380 L500 360 L460 300 Z" />
-                <path class="land land-australia" d="M750 360 L820 340 L900 380 L870 430 L800 440 L760 410 Z" />
+                <path
+                  class="land"
+                  d="M540 276 C570 267 601 269 625 285 C651 301 666 333 676 361 C688 394 701 429 688 459 C676 488 644 504 613 498 C588 493 568 475 555 451 C538 420 528 385 526 351 C524 325 518 288 540 276 Z"
+                />
+                <path
+                  class="land"
+                  d="M744 343 C779 325 818 317 856 322 C888 326 917 338 940 358 C963 378 982 407 978 436 C975 462 954 483 929 493 C903 503 873 502 847 491 C817 478 789 457 771 430 C754 405 737 366 744 343 Z"
+                />
               </g>
             </svg>
             <div class="day-night-overlay"></div>
